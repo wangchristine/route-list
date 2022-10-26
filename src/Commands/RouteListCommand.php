@@ -1,13 +1,10 @@
 <?php
 
-namespace Illuminate\Foundation\Console;
+namespace CHHW\RouteList\Commands;
 
 use Closure;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Routing\UrlGenerator;
-use Illuminate\Routing\Route;
-use Illuminate\Routing\Router;
-use Illuminate\Routing\ViewController;
+use Laravel\Lumen\Routing\Router;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use ReflectionClass;
@@ -56,7 +53,7 @@ class RouteListCommand extends Command
      *
      * @var string[]
      */
-    protected $headers = ['Domain', 'Method', 'URI', 'Name', 'Action', 'Middleware'];
+    protected $headers = ['Method', 'URI', 'Name', 'Action', 'Middleware'];
 
     /**
      * The terminal width resolver callback.
@@ -101,14 +98,12 @@ class RouteListCommand extends Command
      */
     public function handle()
     {
-        $this->router->flushMiddlewareGroups();
-
-        if (! $this->router->getRoutes()->count()) {
-            return $this->components->error("Your application doesn't have any routes.");
+        if (! count($this->router->getRoutes())) {
+            return $this->error("Your application doesn't have any routes.");
         }
 
         if (empty($routes = $this->getRoutes())) {
-            return $this->components->error("Your application doesn't have any routes matching the given criteria.");
+            return $this->error("Your application doesn't have any routes matching the given criteria.");
         }
 
         $this->displayRoutes($routes);
@@ -141,17 +136,16 @@ class RouteListCommand extends Command
     /**
      * Get the route information for a given route.
      *
-     * @param  \Illuminate\Routing\Route  $route
+     * @param  array  $route
      * @return array
      */
-    protected function getRouteInformation(Route $route)
+    protected function getRouteInformation(array $route)
     {
         return $this->filterRoute([
-            'domain' => $route->domain(),
-            'method' => implode('|', $route->methods()),
-            'uri' => $route->uri(),
-            'name' => $route->getName(),
-            'action' => ltrim($route->getActionName(), '\\'),
+            'method' => $route['method'],
+            'uri' => $route['uri'],
+            'name' => $route['action']['as'] ?? null,
+            'action' => ltrim($this->getActionName($route), '\\'),
             'middleware' => $this->getMiddleware($route),
             'vendor' => $this->isVendorRoute($route),
         ]);
@@ -202,56 +196,57 @@ class RouteListCommand extends Command
     /**
      * Get the middleware for the route.
      *
-     * @param  \Illuminate\Routing\Route  $route
+     * @param  array  $route
+     * @return string|null
+     */
+    protected function getActionName(array $route)
+    {
+        if (isset($route['action'][0]) && $route['action'][0] instanceof Closure) {
+            return 'Closure';
+        } elseif (is_string($route['action']['uses'])) {
+            return $route['action']['uses'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Get the middleware for the route.
+     *
+     * @param  array  $route
      * @return string
      */
-    protected function getMiddleware($route)
+    protected function getMiddleware(array $route)
     {
-        return collect($this->router->gatherRouteMiddleware($route))->map(function ($middleware) {
-            return $middleware instanceof Closure ? 'Closure' : $middleware;
-        })->implode("\n");
+        if(isset($route['action']['middleware'])) {
+            return implode("\n", $route['action']['middleware']);
+        }
+
+        return "";
     }
 
     /**
      * Determine if the route has been defined outside of the application.
      *
-     * @param  \Illuminate\Routing\Route  $route
+     * @param  array  $route
      * @return bool
      */
-    protected function isVendorRoute(Route $route)
+    protected function isVendorRoute(array $route)
     {
-        if ($route->action['uses'] instanceof Closure) {
-            $path = (new ReflectionFunction($route->action['uses']))
+        if (isset($route['action'][0]) && $route['action'][0] instanceof Closure) {
+            $path = (new ReflectionFunction($route['action'][0]))
                                 ->getFileName();
-        } elseif (is_string($route->action['uses']) &&
-                  str_contains($route->action['uses'], 'SerializableClosure')) {
+        } elseif (is_string($route['action']['uses']) &&
+                  str_contains($route['action']['uses'], 'SerializableClosure')) {
             return false;
-        } elseif (is_string($route->action['uses'])) {
-            if ($this->isFrameworkController($route)) {
-                return false;
-            }
-
-            $path = (new ReflectionClass($route->getControllerClass()))
+        } elseif (is_string($route['action']['uses'])) {
+            $path = (new ReflectionClass(explode("@", $route['action']['uses'])[0]))
                                 ->getFileName();
         } else {
             return false;
         }
 
         return str_starts_with($path, base_path('vendor'));
-    }
-
-    /**
-     * Determine if the route uses a framework controller.
-     *
-     * @param  \Illuminate\Routing\Route  $route
-     * @return bool
-     */
-    protected function isFrameworkController(Route $route)
-    {
-        return in_array($route->getControllerClass(), [
-            '\Illuminate\Routing\RedirectController',
-            '\Illuminate\Routing\ViewController',
-        ], true);
     }
 
     /**
@@ -265,7 +260,6 @@ class RouteListCommand extends Command
         if (($this->option('name') && ! Str::contains((string) $route['name'], $this->option('name'))) ||
             ($this->option('path') && ! Str::contains($route['uri'], $this->option('path'))) ||
             ($this->option('method') && ! Str::contains($route['method'], strtoupper($this->option('method')))) ||
-            ($this->option('domain') && ! Str::contains((string) $route['domain'], $this->option('domain'))) ||
             ($this->option('except-vendor') && $route['vendor']) ||
             ($this->option('only-vendor') && ! $route['vendor'])) {
             return;
@@ -353,7 +347,7 @@ class RouteListCommand extends Command
             fn ($route) => array_merge($route, [
                 'action' => $this->formatActionForCli($route),
                 'method' => $route['method'] == 'GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS' ? 'ANY' : $route['method'],
-                'uri' => $route['domain'] ? ($route['domain'].'/'.ltrim($route['uri'], '/')) : $route['uri'],
+                'uri' => $route['uri'],
             ]),
         );
 
@@ -366,7 +360,6 @@ class RouteListCommand extends Command
         return $routes->map(function ($route) use ($maxMethod, $terminalWidth) {
             [
                 'action' => $action,
-                'domain' => $domain,
                 'method' => $method,
                 'middleware' => $middleware,
                 'uri' => $uri,
@@ -420,14 +413,11 @@ class RouteListCommand extends Command
     {
         ['action' => $action, 'name' => $name] = $route;
 
-        if ($action === 'Closure' || $action === ViewController::class) {
+        if ($action === 'Closure') {
             return $name;
         }
 
-        $name = $name ? "$name   " : null;
-
-        $rootControllerNamespace = $this->laravel[UrlGenerator::class]->getRootControllerNamespace()
-            ?? ($this->laravel->getNamespace().'Http\\Controllers');
+        $rootControllerNamespace = $this->laravel->getNamespace() . 'Http\\Controllers';
 
         if (str_starts_with($action, $rootControllerNamespace)) {
             return $name.substr($action, mb_strlen($rootControllerNamespace) + 1);
