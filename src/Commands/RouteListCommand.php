@@ -218,11 +218,18 @@ class RouteListCommand extends Command
      */
     protected function getMiddleware(array $route)
     {
+        $middleware = [];
+
         if(isset($route['action']['middleware'])) {
-            return implode("\n", $route['action']['middleware']);
+            $middleware = array_merge($middleware, $route['action']['middleware']);
+        }
+        
+        if(isset($route['action']['uses'])) {
+            list($controller, $method) = explode('@', $route['action']['uses']);
+            $middleware = array_merge($middleware, app($controller)->getMiddlewareForMethod($method));
         }
 
-        return "";
+        return implode("\n", $middleware);
     }
 
     /**
