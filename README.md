@@ -2,6 +2,8 @@
 
 > This package can list all routes just as Laravel do.
 
+![example-route](example-route.jpg)
+
 # Installation
 
 Install by composer
@@ -38,4 +40,27 @@ options:
   -n, --no-interaction             Do not ask any interactive question
       --env[=ENV]                  The environment the command should run under
   -v|vv|vvv, --verbose             Increase the verbosity of messages: 1 for normal output, 2 for more verbose output and 3 for debug
+```
+
+# Route Example
+
+```php
+<?php
+
+$router->get('/', function () use ($router) {
+    return $router->app->version();
+});
+
+$router->get('minion', ["as" => "mini", 'uses' => 'ExampleController@mini']);
+
+$router->group(['middleware' => ['ExampleMiddleware', 'Authenticate'], 'namespace' => 'YY', 'prefix' => 'DD', "as" => "admin"], function () use ($router) {
+    $router->get('showVersion', function () use ($router) {
+        return $router->app->version();
+    });
+
+});
+
+$router->group(["as" => "test"], function () use ($router) {
+    $router->get('vendor', ["as" => "vendor", "uses" => "\Test\Controllers\TestController@vendor"]);
+});
 ```
